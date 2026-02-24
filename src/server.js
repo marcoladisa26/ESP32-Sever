@@ -21,11 +21,16 @@ app.post('/preset/save', (req, res) => {
 
 // GLIDE/SPORTS API: Trigger a light show
 app.post('/preset/trigger', (req, res) => {
-    const { deviceId, presetId } = req.body;
+    // This line handles BOTH standard JSON and Glide's weird format
+    const deviceId = req.body.deviceId || req.body.params?.deviceId?.value;
+    const presetId = req.body.presetId || req.body.params?.presetId?.value;
+
+    if (!deviceId || !presetId) return res.status(400).send("Missing IDs");
+
     const query = db.prepare('INSERT INTO commands (deviceId, presetId) VALUES (?, ?)');
     query.run(deviceId, presetId);
     
-    res.json({ status: "queued", deviceId, presetId });
+    res.json({ status: "queued" });
 });
 
 // ESP32: Polling for updates
