@@ -25,17 +25,22 @@ app.post('/preset/save', (req, res) => {
     res.json({ status: "saved" });
 });
 
-// TRIGGER
-app.post('/preset/trigger', (req, res) => {
-    const deviceId = req.body.deviceId || req.body.params?.deviceId?.value;
-    const presetId = req.body.presetId || req.body.params?.presetId?.value;
+// Change 'app.post' to 'app.all' so it accepts both GET and POST
+app.all('/preset/trigger', (req, res) => {
+    // This line looks for data in the URL (query) OR the body (webhook)
+    const deviceId = req.query.deviceId || req.body.deviceId || req.body.params?.deviceId?.value;
+    const presetId = req.query.presetId || req.body.presetId || req.body.params?.presetId?.value;
 
-    if (!deviceId || !presetId) return res.status(400).json({ error: "Missing IDs" });
+    console.log(`Trigger Attempt - Device: ${deviceId}, Preset: ${presetId}`);
 
-    db.prepare('INSERT INTO commands (deviceId, presetId) VALUES (?, ?)')
-      .run(deviceId, presetId);
+    if (!deviceId || !presetId) {
+        return res.status(400).json({ error: "Missing deviceId or presetId" });
+    }
+
+    const query = db.prepare('INSERT INTO commands (deviceId, presetId) VALUES (?, ?)');
+    query.run(deviceId, presetId);
     
-    res.json({ status: "queued" });
+    res.json({ status: "queued", deviceId, presetId });
 });
 
 // POLL
