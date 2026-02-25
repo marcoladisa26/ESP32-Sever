@@ -16,30 +16,57 @@ app.get('/', (req, res) => {
 });
 
 // GLIDE: Save a preset
+// ... (keep your existing routes) ...
+
+// Updated Save Route with Logging
 app.post('/preset/save', (req, res) => {
+    console.log("📥 RECEIVED SAVE REQUEST FROM GLIDE");
+    console.log("Body:", JSON.stringify(req.body)); // This will show in Render logs
+
     const deviceId = req.body.deviceId || req.body.params?.deviceId?.value;
     const presetId = req.body.presetId || req.body.params?.presetId?.value;
+    
+    // Check if we actually got data
+    if (!deviceId || !presetId) {
+        console.log("❌ REJECTED: Missing deviceId or presetId");
+        return res.status(400).json({ error: "Missing IDs" });
+    }
+
     const data = req.body.params ? req.body.params : req.body;
-
-    if (!deviceId || !presetId) return res.status(400).json({ error: "Missing IDs" });
-
     const query = db.prepare('INSERT OR REPLACE INTO presets (id, deviceId, data) VALUES (?, ?, ?)');
     query.run(presetId, deviceId, JSON.stringify(data));
     
+    console.log(`✅ SUCCESSFULLY SAVED PRESET: ${presetId}`);
     res.json({ status: "saved", deviceId, presetId });
+});
+
+// Update the listen block to be ultra-compatible
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ SERVER IS LIVE`);
+    console.log(`PORT: ${PORT}`);
 });
 
 // TRIGGER: From Glide or API
 app.post('/preset/trigger', (req, res) => {
     const deviceId = req.body.deviceId || req.body.params?.deviceId?.value;
+    // This allows you to send the 'Event' name as the presetId
     const presetId = req.body.presetId || req.body.params?.presetId?.value;
 
     if (!deviceId || !presetId) return res.status(400).json({ error: "Missing IDs" });
 
+    // Look for a preset that matches this event name for this device
+    const preset = db.prepare('SELECT id FROM presets WHERE id = ? AND deviceId = ?').get(presetId, deviceId);
+
+    if (!preset) {
+        console.log(`Warning: Triggered '${presetId}' but no preset details found.`);
+        // We still queue it, so the ESP32 knows 'something' happened
+    }
+
     const query = db.prepare('INSERT INTO commands (deviceId, presetId) VALUES (?, ?)');
     query.run(deviceId, presetId);
     
-    res.json({ status: "queued", deviceId, presetId });
+    console.log(`🚀 Triggered event: ${presetId} for ${deviceId}`);
+    res.json({ status: "queued", event: presetId });
 });
 
 // ESP32: Poll for multiple commands
