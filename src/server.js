@@ -47,14 +47,27 @@ app.get('/device/poll', (req, res) => {
     const { deviceId } = req.query;
     if (!deviceId) return res.status(400).json({ error: "Missing deviceId" });
 
-    const commands = db.prepare('SELECT id, presetId FROM commands WHERE deviceId = ? ORDER BY timestamp ASC').all(deviceId);
+    // This query finds pending commands AND joins them with the actual preset data
+    const commands = db.prepare(`
+        SELECT c.id, c.presetId, p.data 
+        FROM commands c
+        LEFT JOIN presets p ON c.presetId = p.id AND c.deviceId = p.deviceId
+        WHERE c.deviceId = ? 
+        ORDER BY c.timestamp ASC
+    `).all(deviceId);
 
     if (commands.length > 0) {
         const idsToDelete = commands.map(c => c.id);
         const deleteStmt = db.prepare(`DELETE FROM commands WHERE id IN (${idsToDelete.map(() => '?').join(',')})`);
         deleteStmt.run(...idsToDelete);
 
-        return res.json({ count: commands.length, commands: commands.map(c => c.presetId) });
+        // Map the results so the ESP32 gets the full preset details
+        const fullCommands = commands.map(c => ({
+            presetId: c.presetId,
+            settings: c.data ? JSON.parse(c.data) : {}
+        }));
+
+        return res.json({ count: fullCommands.length, commands: fullCommands });
     }
     res.json({ count: 0, commands: [] });
 });
