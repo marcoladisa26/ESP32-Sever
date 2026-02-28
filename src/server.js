@@ -12,17 +12,27 @@ app.get('/', (req, res) => res.send('Server is up! 🚀'));
 
 // GLIDE SAVE
 app.post('/preset/save', (req, res) => {
-    console.log("📥 Save Request:", req.body);
-    const deviceId = req.body.deviceId || req.body.params?.deviceId?.value;
-    const presetId = req.body.presetId || req.body.params?.presetId?.value;
-    
-    if (!deviceId || !presetId) return res.status(400).json({ error: "Missing IDs" });
+    // Extracting fields from Glide's body structure
+    const body = req.body.params || req.body;
+    const deviceId = body.deviceId?.value || body.deviceId;
+    const presetId = (body.presetId?.value || body.presetId || "").toString().trim();
 
-    const data = req.body.params ? req.body.params : req.body;
-    db.prepare('INSERT OR REPLACE INTO presets (id, deviceId, data) VALUES (?, ?, ?)')
-      .run(presetId, deviceId, JSON.stringify(data));
-    
-    res.json({ status: "saved" });
+    const data = {
+        audio: body.audio?.value || body.audio,
+        seq1_effect: body.seq1_effect?.value || body.seq1_effect,
+        seq1_duration: body.seq1_duration?.value || body.seq1_duration,
+        seq1_speed: body.seq1_speed?.value || body.seq1_speed,
+        seq1_color1: body.seq1_color1?.value || body.seq1_color1,
+        seq1_color2: body.seq1_color2?.value || body.seq1_color2,
+        // ... repeat for seq2, seq3, and seq4
+    };
+
+    console.log(`📥 Saving Preset: ${presetId} for ${deviceId}`);
+
+    const query = db.prepare('INSERT OR REPLACE INTO presets (id, deviceId, data) VALUES (?, ?, ?)');
+    query.run(presetId, deviceId, JSON.stringify(data));
+
+    res.json({ status: "success" });
 });
 
 // Change 'app.post' to 'app.all' so it accepts both GET and POST
@@ -46,30 +56,21 @@ app.all('/preset/trigger', (req, res) => {
 // POLL
 app.get('/device/poll', (req, res) => {
     const { deviceId } = req.query;
-    if (!deviceId) return res.status(400).json({ error: "Missing deviceId" });
-
-    // 1. Get the pending commands
-    const commands = db.prepare('SELECT * FROM commands WHERE deviceId = ? ORDER BY timestamp ASC').all(deviceId);
+    const commands = db.prepare('SELECT * FROM commands WHERE deviceId = ?').all(deviceId);
 
     if (commands.length > 0) {
         const fullCommands = commands.map(cmd => {
-            // 2. Look for the matching preset details
             const preset = db.prepare('SELECT data FROM presets WHERE id = ? AND deviceId = ?')
                              .get(cmd.presetId, deviceId);
-
-            if (!preset) {
-                console.log(`❌ DATA GAP: Found command '${cmd.presetId}' but NO preset saved with that ID for ${deviceId}`);
-            }
-
             return {
-                presetId: cmd.presetId,
+                presetId: cmd.presetId, // This becomes the filename on the SD card
                 settings: preset ? JSON.parse(preset.data) : {}
             };
         });
 
-        // 3. Clear the queue
-        const idsToDelete = commands.map(c => c.id);
-        db.prepare(`DELETE FROM commands WHERE id IN (${idsToDelete.map(() => '?').join(',')})`).run(...idsToDelete);
+        // Clear the commands after sending
+        const ids = commands.map(c => c.id);
+        db.prepare(`DELETE FROM commands WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
 
         return res.json({ count: fullCommands.length, commands: fullCommands });
     }
