@@ -46,12 +46,30 @@ app.all('/preset/trigger', (req, res) => {
 // POLL
 app.get('/device/poll', (req, res) => {
     const { deviceId } = req.query;
-    const commands = db.prepare('SELECT id, presetId FROM commands WHERE deviceId = ? ORDER BY timestamp ASC').all(deviceId);
+    if (!deviceId) return res.status(400).json({ error: "Missing deviceId" });
+
+    // Get commands and join with the actual preset data
+    const commands = db.prepare(`
+        SELECT c.id, c.presetId, p.data 
+        FROM commands c
+        LEFT JOIN presets p ON c.presetId = p.id AND c.deviceId = p.deviceId
+        WHERE c.deviceId = ? 
+        ORDER BY c.timestamp ASC
+    `).all(deviceId);
 
     if (commands.length > 0) {
-        const ids = commands.map(c => c.id);
-        db.prepare(`DELETE FROM commands WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
-        return res.json({ count: commands.length, commands: commands.map(c => c.presetId) });
+        const idsToDelete = commands.map(c => c.id);
+        const deleteStmt = db.prepare(`DELETE FROM commands WHERE id IN (${idsToDelete.map(() => '?').join(',')})`);
+        deleteStmt.run(...idsToDelete);
+
+        // Convert the stringified data back into JSON for the ESP32
+        const fullCommands = commands.map(c => ({
+            presetId: c.presetId,
+            settings: c.data ? JSON.parse(c.data) : {}
+        }));
+
+        console.log(`📡 Sending ${fullCommands.length} full presets to ${deviceId}`);
+        return res.json({ count: fullCommands.length, commands: fullCommands });
     }
     res.json({ count: 0, commands: [] });
 });
