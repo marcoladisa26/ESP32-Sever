@@ -41,6 +41,34 @@ app.post('/preset/save', (req, res) => {
     }
 });
 
+// --- TRIGGER PRESET ROUTE ---
+app.post('/preset/trigger', (req, res) => {
+    try {
+        const getValue = (key) => {
+            const val = req.body.params?.[key] || req.body[key];
+            return (val && typeof val === 'object' && 'value' in val) ? val.value : val;
+        };
+
+        const deviceId = getValue('deviceId');
+        const presetId = getValue('presetId');
+
+        if (!deviceId || !presetId) {
+            return res.status(400).json({ error: "Missing deviceId or presetId" });
+        }
+
+        console.log(`🚀 Triggering Preset: ${presetId} for ${deviceId}`);
+
+        // Add the command to the queue for the ESP32 to find later
+        const query = db.prepare('INSERT INTO commands (deviceId, presetId) VALUES (?, ?)');
+        query.run(deviceId, presetId);
+
+        res.json({ status: "success", triggered: presetId });
+    } catch (err) {
+        console.error("❌ Trigger Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // --- DEVICE POLL ROUTE ---
 app.get('/device/poll', (req, res) => {
     try {
