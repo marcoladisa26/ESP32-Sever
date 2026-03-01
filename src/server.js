@@ -12,24 +12,38 @@ app.get('/', (req, res) => res.send('Server is up! 🚀'));
 
 // GLIDE SAVE
 app.post('/preset/save', (req, res) => {
-    // This helper grabs the value regardless of Glide's nested structure
-    const getValue = (key) => {
-        const val = req.body.params?.[key] || req.body[key];
-        return val?.value !== undefined ? val.value : val;
-    };
+    try {
+        // Helper to grab values from Glide's nested structure
+        const getValue = (key) => {
+            const val = req.body.params?.[key] || req.body[key];
+            return (val && typeof val === 'object' && 'value' in val) ? val.value : val;
+        };
 
-    const deviceId = getValue('deviceId');
-    const presetId = (getValue('presetId') || "").toString().trim();
+        const deviceId = getValue('deviceId');
+        const presetId = (getValue('presetId') || "").toString().trim();
 
-    // Capture every single field from the request body into the data object
-    const data = { ...req.body.params, ...req.body };
-    
-    // Clean up the data object so it only contains values, not Glide objects
-    Object.keys(data).forEach(key => {
-        if (data[key] && typeof data[key] === 'object' && 'value' in data[key]) {
-            data[key] = data[key].value;
-        }
-    });
+        // Combine everything into one data object
+        const rawData = { ...req.body.params, ...req.body };
+        const cleanData = {};
+        
+        // Flatten the object so the ESP32 gets simple "key: value" pairs
+        Object.keys(rawData).forEach(key => {
+            const val = rawData[key];
+            cleanData[key] = (val && typeof val === 'object' && 'value' in val) ? val.value : val;
+        });
+
+        console.log(`📥 Saving Preset: ${presetId} for ${deviceId}`);
+        console.log(`📊 Fields captured: ${Object.keys(cleanData).join(', ')}`);
+
+        const query = db.prepare('INSERT OR REPLACE INTO presets (id, deviceId, data) VALUES (?, ?, ?)');
+        query.run(presetId, deviceId, JSON.stringify(cleanData));
+
+        res.json({ status: "success", savedId: presetId });
+    } catch (err) {
+        console.error("❌ Save Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+}); // <--- Line 48-ish is usually right here!
 
     console.log(`📥 Saving Preset: ${presetId} with ${Object.keys(data).length} fields`);
 
