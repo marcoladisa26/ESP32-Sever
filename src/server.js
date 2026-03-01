@@ -12,20 +12,32 @@ app.get('/', (req, res) => res.send('Server is up! 🚀'));
 
 // GLIDE SAVE
 app.post('/preset/save', (req, res) => {
-    // Extracting fields from Glide's body structure
-    const body = req.body.params || req.body;
-    const deviceId = body.deviceId?.value || body.deviceId;
-    const presetId = (body.presetId?.value || body.presetId || "").toString().trim();
-
-    const data = {
-        audio: body.audio?.value || body.audio,
-        seq1_effect: body.seq1_effect?.value || body.seq1_effect,
-        seq1_duration: body.seq1_duration?.value || body.seq1_duration,
-        seq1_speed: body.seq1_speed?.value || body.seq1_speed,
-        seq1_color1: body.seq1_color1?.value || body.seq1_color1,
-        seq1_color2: body.seq1_color2?.value || body.seq1_color2,
-        // ... repeat for seq2, seq3, and seq4
+    // This helper grabs the value regardless of Glide's nested structure
+    const getValue = (key) => {
+        const val = req.body.params?.[key] || req.body[key];
+        return val?.value !== undefined ? val.value : val;
     };
+
+    const deviceId = getValue('deviceId');
+    const presetId = (getValue('presetId') || "").toString().trim();
+
+    // Capture every single field from the request body into the data object
+    const data = { ...req.body.params, ...req.body };
+    
+    // Clean up the data object so it only contains values, not Glide objects
+    Object.keys(data).forEach(key => {
+        if (data[key] && typeof data[key] === 'object' && 'value' in data[key]) {
+            data[key] = data[key].value;
+        }
+    });
+
+    console.log(`📥 Saving Preset: ${presetId} with ${Object.keys(data).length} fields`);
+
+    const query = db.prepare('INSERT OR REPLACE INTO presets (id, deviceId, data) VALUES (?, ?, ?)');
+    query.run(presetId, deviceId, JSON.stringify(data));
+
+    res.json({ status: "success" });
+});
 
     console.log(`📥 Saving Preset: ${presetId} for ${deviceId}`);
 
