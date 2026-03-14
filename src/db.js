@@ -1,25 +1,18 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+// db.js - Fetches your User/Device settings from Glide/Google Sheets
+const axios = require('axios');
 
-const dbPath = process.env.RENDER 
-    ? '/tmp/lighting.db' 
-    : path.join(__dirname, '../data/lighting.db');
+// Replace this with your Google Sheet JSON URL or Glide API URL
+const DATA_SOURCE_URL = "YOUR_GLIDE_DATA_JSON_URL";
 
-const db = new Database(dbPath);
+async function getAllDevicesFromDB() {
+    try {
+        const response = await axios.get(DATA_SOURCE_URL);
+        // Assuming your data is an array of rows
+        return response.data; 
+    } catch (error) {
+        console.error("❌ Error fetching database:", error.message);
+        return [];
+    }
+}
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS presets (
-    id TEXT,
-    deviceId TEXT,
-    data TEXT,
-    PRIMARY KEY (id, deviceId)
-  );
-  CREATE TABLE IF NOT EXISTS commands (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    deviceId TEXT,
-    presetId TEXT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
-
-module.exports = db;
+module.exports = { getAllDevicesFromDB };
