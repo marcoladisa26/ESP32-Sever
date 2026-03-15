@@ -114,4 +114,6 @@ async function checkMLB() {
 setInterval(checkNHL, 15000); // Poll NHL every 15s
 setInterval(checkMLB, 15000); // Poll MLB every 15s
 
+console.log(`🕒 Heartbeat: Checking sports at ${new Date().toLocaleTimeString()}`);
+
 app.listen(process.env.PORT || 3000, () => console.log("Sports Server Running"));
