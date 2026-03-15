@@ -35,35 +35,44 @@ async function checkNHL() {
         const response = await fetch("https://api-web.nhle.com/v1/score/now");
         const data = await response.json();
         
-        // Safety check: Make sure 'games' exists
-        if (!data || !data.games) return;
+        // Check if 'games' exists and is an array
+        if (!data || !Array.isArray(data.games)) {
+            console.log("🏒 NHL: No games found in current response.");
+            return;
+        }
 
         data.games.forEach(game => {
-            // Use Optional Chaining (?.) to prevent "undefined" crashes
-            const homeTeam = game.homeTeam?.commonName?.default || game.homeTeam?.abbreviation;
-            const awayTeam = game.awayTeam?.commonName?.default || game.awayTeam?.abbreviation;
-            
-            // If we still can't find a team name, skip this game
-            if (!homeTeam || !awayTeam) return;
+            // SAFE ACCESS: If homeTeam or awayTeam is missing, skip this loop
+            if (!game.homeTeam || !game.awayTeam) return;
 
+            // Try to find a name, fallback to abbreviation (TOR, NYR, etc.)
+            const homeTeam = game.homeTeam.commonName?.default || game.homeTeam.abbreviation || "Unknown";
+            const awayTeam = game.awayTeam.commonName?.default || game.awayTeam.abbreviation || "Unknown";
+            
             const gameKey = `nhl_${game.id}`;
-            const homeScore = game.homeTeam?.score || 0;
-            const awayScore = game.awayTeam?.score || 0;
+            const homeScore = game.homeTeam.score ?? 0;
+            const awayScore = game.awayTeam.score ?? 0;
             const scoreSum = homeScore + awayScore;
 
-            // 1. Check for Goals
-            if (lastProcessedEvents[gameKey] && scoreSum > lastProcessedEvents[gameKey].score) {
+            // Initialize tracker for new games
+            if (!lastProcessedEvents[gameKey]) {
+                lastProcessedEvents[gameKey] = { score: scoreSum, home: homeScore, state: game.gameState };
+                return;
+            }
+
+            // 1. Detect Goals
+            if (scoreSum > lastProcessedEvents[gameKey].score) {
                 const scoringTeam = (homeScore > lastProcessedEvents[gameKey].home) ? homeTeam : awayTeam;
                 triggerLights(scoringTeam, "GOAL");
             }
             
-            // 2. Check for Game Start
-            if (game.gameState === "LIVE" && lastProcessedEvents[gameKey]?.state === "FUT") {
+            // 2. Detect Game/Period Start
+            if (game.gameState === "LIVE" && lastProcessedEvents[gameKey].state === "FUT") {
                 triggerLights(homeTeam, "GAME_START");
                 triggerLights(awayTeam, "GAME_START");
             }
 
-            // Save state for next poll
+            // Update tracker
             lastProcessedEvents[gameKey] = { 
                 score: scoreSum, 
                 home: homeScore, 
@@ -71,7 +80,7 @@ async function checkNHL() {
             };
         });
     } catch (e) { 
-        console.error("NHL API Fetch Error:", e.message); 
+        console.error("❌ NHL Poll Failed:", e.message); 
     }
 }
 
