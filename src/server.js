@@ -30,26 +30,48 @@ function triggerLights(teamName, eventType) {
 }
 
 // --- NHL LOGIC (Goals & Period Starts) ---
-// No need to require('node-fetch') anymore!
-
 async function checkNHL() {
     try {
-        // Native fetch works out of the box in Node 24
         const response = await fetch("https://api-web.nhle.com/v1/score/now");
-        
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        
         const data = await response.json();
         
+        // Safety check: Make sure 'games' exists
+        if (!data || !data.games) return;
+
         data.games.forEach(game => {
-            const homeTeam = game.homeTeam.commonName.default;
-            const awayTeam = game.awayTeam.commonName.default;
+            // Use Optional Chaining (?.) to prevent "undefined" crashes
+            const homeTeam = game.homeTeam?.commonName?.default || game.homeTeam?.abbreviation;
+            const awayTeam = game.awayTeam?.commonName?.default || game.awayTeam?.abbreviation;
             
-            // Your goal detection logic...
-            console.log(`Checking game: ${homeTeam} vs ${awayTeam}`);
+            // If we still can't find a team name, skip this game
+            if (!homeTeam || !awayTeam) return;
+
+            const gameKey = `nhl_${game.id}`;
+            const homeScore = game.homeTeam?.score || 0;
+            const awayScore = game.awayTeam?.score || 0;
+            const scoreSum = homeScore + awayScore;
+
+            // 1. Check for Goals
+            if (lastProcessedEvents[gameKey] && scoreSum > lastProcessedEvents[gameKey].score) {
+                const scoringTeam = (homeScore > lastProcessedEvents[gameKey].home) ? homeTeam : awayTeam;
+                triggerLights(scoringTeam, "GOAL");
+            }
+            
+            // 2. Check for Game Start
+            if (game.gameState === "LIVE" && lastProcessedEvents[gameKey]?.state === "FUT") {
+                triggerLights(homeTeam, "GAME_START");
+                triggerLights(awayTeam, "GAME_START");
+            }
+
+            // Save state for next poll
+            lastProcessedEvents[gameKey] = { 
+                score: scoreSum, 
+                home: homeScore, 
+                state: game.gameState 
+            };
         });
-    } catch (error) {
-        console.error("NHL API Fetch Error:", error.message);
+    } catch (e) { 
+        console.error("NHL API Fetch Error:", e.message); 
     }
 }
 
