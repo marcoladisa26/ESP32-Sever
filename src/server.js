@@ -1,10 +1,10 @@
+const express = require('express');
+const app = express();
+app.use(express.json());
 app.use((req, res, next) => {
     console.log(`📥 Incoming ${req.method} request to ${req.url}`);
     next();
 });
-const express = require('express');
-const app = express();
-app.use(express.json());
 
 let userMemory = {}; // Stores { deviceId: { trackingTeam, presets } }
 let deviceQueues = {}; 
