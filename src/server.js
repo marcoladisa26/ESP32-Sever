@@ -1,3 +1,7 @@
+app.use((req, res, next) => {
+    console.log(`📥 Incoming ${req.method} request to ${req.url}`);
+    next();
+});
 const express = require('express');
 const { getAllDevicesFromDB } = require('./db');
 const app = express();
