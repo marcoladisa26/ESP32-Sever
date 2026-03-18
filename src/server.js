@@ -74,8 +74,8 @@ async function checkNHL() {
         if (!data || !data.games) return;
 
         data.games.forEach(game => {
-            const homeTeam = game.homeTeam.commonName?.default || game.homeTeam.abbreviation;
-            const awayTeam = game.awayTeam.commonName?.default || game.awayTeam.abbreviation;
+            const homeTeam = game.homeTeam.commonName?.default || game.homeTeam.abbreviation || "Unknown";
+            const awayTeam = game.awayTeam.commonName?.default || game.awayTeam.abbreviation || "Unknown";
             const gameKey = `nhl_${game.id}`;
             const homeScore = game.homeTeam.score ?? 0;
             const awayScore = game.awayTeam.score ?? 0;
@@ -128,7 +128,7 @@ async function checkMLB() {
 
 // --- 8. LOOPS & START ---
 setInterval(() => {
-    console.log(`🕒 Heartbeat: ${new Date().toLocaleTimeString()}`);
+    console.log(`🕒 Heartbeat: ${new Date().toLocaleString("en-US", {timeZone: "America/Toronto"})}`);
     checkNHL();
     checkMLB();
 }, 20000);
