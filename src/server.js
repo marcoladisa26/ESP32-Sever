@@ -74,15 +74,23 @@ app.get('/test-trigger', (req, res) => {
 });
 
 // --- 6. NHL LOGIC ---
-async function checkNHL() {
+asyncasync function checkNHL() {
     try {
         const response = await fetch("https://api-web.nhle.com/v1/score/now");
         const data = await response.json();
         if (!data || !data.games) return;
 
+        // Get today's date in YYYY-MM-DD format to filter out old games
+        const today = new Date().toISOString().split('T')[0];
+
         data.games.forEach(game => {
+            // ONLY process games from today to prevent "Ghost" logs from 4pm games
+            if (game.gameDate !== today) return;
+
+            // FIX: Try Common Name -> Abbreviation -> "Unknown"
             const homeTeam = game.homeTeam.commonName?.default || game.homeTeam.abbreviation || "Unknown";
             const awayTeam = game.awayTeam.commonName?.default || game.awayTeam.abbreviation || "Unknown";
+            
             const gameKey = `nhl_${game.id}`;
             const homeScore = game.homeTeam.score ?? 0;
             const awayScore = game.awayTeam.score ?? 0;
@@ -94,12 +102,14 @@ async function checkNHL() {
             }
             const prev = lastProcessedEvents[gameKey];
 
-            if (scoreSum > prev.score) {
+            // 1. GOAL Detection (Only if the game is LIVE)
+            if (game.gameState === "LIVE" && scoreSum > prev.score) {
                 const scoringTeam = (homeScore > prev.home) ? homeTeam : awayTeam;
                 triggerLights(scoringTeam, "GOAL");
             }
 
-            if (game.gameState === "OFF" && prev.state !== "OFF") {
+            // 2. WIN Detection (Only trigger when moving to FINAL states)
+            if ((game.gameState === "OFF" || game.gameState === "FINAL") && prev.state === "LIVE") {
                 const winner = (homeScore > awayScore) ? homeTeam : awayTeam;
                 triggerLights(winner, "WIN");
                 console.log(`🏆 GAME FINAL: ${homeTeam} ${homeScore} - ${awayTeam} ${awayScore}`);
