@@ -74,7 +74,7 @@ app.get('/test-trigger', (req, res) => {
 });
 
 // --- 6. NHL LOGIC ---
-asyncasync function checkNHL() {
+async function checkNHL() {
     try {
         const response = await fetch("https://api-web.nhle.com/v1/score/now");
         const data = await response.json();
