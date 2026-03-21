@@ -3,97 +3,121 @@ app.use((req, res, next) => {
     next();
 });
 const express = require('express');
-const { getAllDevicesFromDB } = require('./db');
 const app = express();
-
 app.use(express.json());
 
-let sportsState = { mlb: {}, nhl: {} };
-let deviceQueues = {}; // Temporary storage for commands
+let userMemory = {}; // Stores { deviceId: { trackingTeam, presets } }
+let deviceQueues = {}; 
+let lastProcessedEvents = {}; // Tracks event IDs to prevent double-triggers
 
-// --- 1. THE DISPATCHER ---
-// This builds the custom 4-sequence command based on user settings
-async function triggerSportsEvent(league, homeTeam, awayTeam) {
-    console.log(`🚨 ${league} Score Change: ${homeTeam} vs ${awayTeam}`);
-    
-    const allDevices = await getAllDevicesFromDB();
-    const teamsInGame = [homeTeam, awayTeam];
+// --- REGISTRATION (From Glide) ---
+app.post('/register-preset', (req, res) => {
+    const { deviceId, trackingTeam, audioUrl, ...presets } = req.body;
+    userMemory[deviceId] = { trackingTeam, audioUrl, presets };
+    res.json({ success: true });
+});
 
-    allDevices.forEach(device => {
-        // Does the user follow one of these teams?
-        if (teamsInGame.includes(device.trackingTeam)) {
-            console.log(`✅ Match! Pushing preset for ${device.deviceId}`);
-
-            const customPreset = {
-                presetId: `Auto_${league}_${Date.now()}`,
-                settings: {
-                    audio: device.audioUrl,
-                    // Map your database columns to the ESP32 format
-                    seq1_effect: device.seq1_eff, seq1_color1: device.seq1_c1, 
-                    seq1_color2: device.seq1_c2, seq1_duration: device.seq1_dur, seq1_speed: device.seq1_spd,
-                    
-                    seq2_effect: device.seq2_eff, seq2_color1: device.seq2_c1, 
-                    seq2_color2: device.seq2_c2, seq2_duration: device.seq2_dur, seq2_speed: device.seq2_spd,
-                    
-                    seq3_effect: device.seq3_eff, seq3_color1: device.seq3_c1, 
-                    seq3_color2: device.seq3_c2, seq3_duration: device.seq3_dur, seq3_speed: device.seq3_spd,
-                    
-                    seq4_effect: device.seq4_eff, seq4_color1: device.seq4_c1, 
-                    seq4_color2: device.seq4_c2, seq4_duration: device.seq4_dur, seq4_speed: device.seq4_spd
-                }
+// --- TRIGGER FUNCTION ---
+function triggerLights(teamName, eventType) {
+    console.log(`🚨 EVENT: ${eventType} for ${teamName}`);
+    Object.keys(userMemory).forEach(devId => {
+        const user = userMemory[devId];
+        if (user.trackingTeam === teamName) {
+            const command = {
+                presetId: `${eventType}_${Date.now()}`,
+                settings: { audio: user.audioUrl, ...user.presets }
             };
-
-            if (!deviceQueues[device.deviceId]) deviceQueues[device.deviceId] = [];
-            deviceQueues[device.deviceId].push(customPreset);
+            if (!deviceQueues[devId]) deviceQueues[devId] = [];
+            deviceQueues[devId].push(command);
         }
     });
 }
 
-// --- 2. SPORTS SCRAPERS ---
-async function checkSports() {
-    // MLB Poll
+// --- NHL LOGIC (Goals & Period Starts) ---
+async function checkNHL() {
     try {
-        const res = await fetch("https://statsapi.mlb.com/api/v1/schedule/games/?sportId=1");
-        const data = await res.json();
-        const games = data.dates?.[0]?.games || [];
-        games.forEach(game => {
-            const id = game.gamePk;
-            const score = (game.teams.home.score || 0) + (game.teams.away.score || 0);
-            if (sportsState.mlb[id] !== undefined && score > sportsState.mlb[id]) {
-                triggerSportsEvent("MLB", game.teams.home.team.name, game.teams.away.team.name);
-            }
-            sportsState.mlb[id] = score;
-        });
-    } catch (e) { console.log("MLB Error"); }
+        const response = await fetch("https://api-web.nhle.com/v1/score/now");
+        const data = await response.json();
+        
+        // Check if 'games' exists and is an array
+        if (!data || !Array.isArray(data.games)) {
+            console.log("🏒 NHL: No games found in current response.");
+            return;
+        }
 
-    // NHL Poll
-    try {
-        const res = await fetch("https://api-web.nhle.com/v1/score/now");
-        const data = await res.json();
         data.games.forEach(game => {
-            const id = game.id;
-            const score = (game.homeTeam.score || 0) + (game.awayTeam.score || 0);
-            if (sportsState.nhl[id] !== undefined && score > sportsState.nhl[id]) {
-                triggerSportsEvent("NHL", game.homeTeam.commonName.default, game.awayTeam.commonName.default);
+            // SAFE ACCESS: If homeTeam or awayTeam is missing, skip this loop
+            if (!game.homeTeam || !game.awayTeam) return;
+
+            // Try to find a name, fallback to abbreviation (TOR, NYR, etc.)
+            const homeTeam = game.homeTeam.commonName?.default || game.homeTeam.abbreviation || "Unknown";
+            const awayTeam = game.awayTeam.commonName?.default || game.awayTeam.abbreviation || "Unknown";
+            
+            const gameKey = `nhl_${game.id}`;
+            const homeScore = game.homeTeam.score ?? 0;
+            const awayScore = game.awayTeam.score ?? 0;
+            const scoreSum = homeScore + awayScore;
+
+            // Initialize tracker for new games
+            if (!lastProcessedEvents[gameKey]) {
+                lastProcessedEvents[gameKey] = { score: scoreSum, home: homeScore, state: game.gameState };
+                return;
             }
-            sportsState.nhl[id] = score;
+
+            // 1. Detect Goals
+            if (scoreSum > lastProcessedEvents[gameKey].score) {
+                const scoringTeam = (homeScore > lastProcessedEvents[gameKey].home) ? homeTeam : awayTeam;
+                triggerLights(scoringTeam, "GOAL");
+            }
+            
+            // 2. Detect Game/Period Start
+            if (game.gameState === "LIVE" && lastProcessedEvents[gameKey].state === "FUT") {
+                triggerLights(homeTeam, "GAME_START");
+                triggerLights(awayTeam, "GAME_START");
+            }
+
+            // Update tracker
+            lastProcessedEvents[gameKey] = { 
+                score: scoreSum, 
+                home: homeScore, 
+                state: game.gameState 
+            };
         });
-    } catch (e) { console.log("NHL Error"); }
+    } catch (e) { 
+        console.error("❌ NHL Poll Failed:", e.message); 
+    }
 }
 
-// --- 3. ESP32 ENDPOINT ---
-app.get('/device/poll', (req, res) => {
-    const { deviceId } = req.query;
-    if (!deviceQueues[deviceId]) deviceQueues[deviceId] = [];
-    
-    // Send all waiting commands and clear the queue
-    const commands = [...deviceQueues[deviceId]];
-    deviceQueues[deviceId] = [];
-    res.json({ commands });
-});
+// --- MLB LOGIC (Home Runs, Strikeouts, Game Start) ---
+async function checkMLB() {
+    try {
+        // 1. Get today's games
+        const schedRes = await fetch("https://statsapi.mlb.com/api/v1/schedule?sportId=1");
+        const schedData = await schedRes.json();
+        const activeGames = schedData.dates[0]?.games.filter(g => g.status.abstractGameState === "Live") || [];
 
-// Start checking sports every 20 seconds
-setInterval(checkSports, 20000);
+        for (let game of activeGames) {
+            const liveRes = await fetch(`https://statsapi.mlb.com/api/v1.1/game/${game.gamePk}/feed/live`);
+            const liveData = await liveRes.json();
+            const lastPlay = liveData.liveData.plays.allPlays.slice(-1)[0];
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server listening on port ${PORT}`));
+            if (lastPlay && lastPlay.about.playId !== lastProcessedEvents[game.gamePk]) {
+                const event = lastPlay.result.event; // "Home Run", "Strikeout", etc.
+                const team = lastPlay.team.name.split(' ').pop(); // Gets "Blue Jays" from "Toronto Blue Jays"
+
+                if (["Home Run", "Strikeout", "Game Over"].includes(event)) {
+                    triggerLights(team, event.toUpperCase().replace(' ', '_'));
+                }
+                lastProcessedEvents[game.gamePk] = lastPlay.about.playId;
+            }
+        }
+    } catch (e) { console.error("MLB Error", e); }
+}
+
+// --- LOOPS ---
+setInterval(checkNHL, 15000); // Poll NHL every 15s
+setInterval(checkMLB, 15000); // Poll MLB every 15s
+
+console.log(`🕒 Heartbeat: Checking sports at ${new Date().toLocaleTimeString()}`);
+
+app.listen(process.env.PORT || 3000, () => console.log("Sports Server Running"));
