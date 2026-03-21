@@ -6,50 +6,92 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
-let userMemory = {}; // Stores { deviceId: { trackingTeam, presets } }
-let deviceQueues = {}; 
-let lastProcessedEvents = {}; // Tracks event IDs to prevent double-triggers
+// --- 1. LOGGING MIDDLEWARE ---
+app.use((req, res, next) => {
+    if (req.url !== '/device/poll') { // Keep logs clean of constant polling
+        console.log(`📥 Incoming ${req.method} request to ${req.url}`);
+    }
+    next();
+});
 
-// --- REGISTRATION (From Glide) ---
+let userMemory = {}; 
+let deviceQueues = {}; 
+let lastProcessedEvents = {}; 
+
+// --- 2. REGISTRATION (From Glide) ---
 app.post('/register-preset', (req, res) => {
     const { deviceId, trackingTeam, audioUrl, ...presets } = req.body;
+    if (!deviceId) return res.status(400).json({ error: "Missing deviceId" });
+    
     userMemory[deviceId] = { trackingTeam, audioUrl, presets };
+    console.log(`✅ Registered: ${deviceId} watching ${trackingTeam}`);
     res.json({ success: true });
 });
 
-// --- TRIGGER FUNCTION ---
+// --- 3. THE IMPROVED TRIGGER FUNCTION ---
 function triggerLights(teamName, eventType) {
-    console.log(`🚨 EVENT: ${eventType} for ${teamName}`);
+    // Normalize both inputs to Uppercase and remove accidental spaces
+    const cleanTeam = String(teamName).trim();
+    const cleanEvent = String(eventType).toUpperCase().trim();
+
+    console.log(`📡 API EVENT: ${cleanEvent} for ${cleanTeam}`);
+
+    let matched = false;
     Object.keys(userMemory).forEach(devId => {
         const user = userMemory[devId];
-        if (user.trackingTeam === teamName) {
+        
+        // Match teams exactly (e.g., "Canadiens" === "Canadiens")
+        if (user.trackingTeam === cleanTeam) {
+            matched = true;
             const command = {
-                presetId: `${eventType}_${Date.now()}`,
+                presetId: `${cleanEvent}_${Date.now()}`,
                 settings: { audio: user.audioUrl, ...user.presets }
             };
+            
             if (!deviceQueues[devId]) deviceQueues[devId] = [];
             deviceQueues[devId].push(command);
+            console.log(`   ✨ [${devId}] MATCHED! Queuing: ${command.presetId}`);
         }
     });
+
+    if (!matched) console.log(`   (No active devices tracking ${cleanTeam})`);
 }
 
-// --- NHL LOGIC (Goals & Period Starts) ---
+// --- 4. DEVICE POLLING (For ESP32) ---
+app.get('/device/poll', (req, res) => {
+    const { deviceId } = req.query;
+    if (deviceQueues[deviceId] && deviceQueues[deviceId].length > 0) {
+        const command = deviceQueues[deviceId].shift();
+        console.log(`📤 Sending command to ${deviceId}: ${command.presetId}`);
+        return res.json(command);
+    }
+    res.status(204).end();
+});
+
+// --- 5. TEST TRIGGER (Manual Simulation) ---
+app.get('/test-trigger', (req, res) => {
+    const team = req.query.team || "Canadiens";
+    const event = req.query.event || "WIN";
+    console.log(`🚀 MANUAL TEST: Simulating ${event} for ${team}`);
+    triggerLights(team, event);
+    res.send(`Simulated ${event} for ${team}. Check logs!`);
+});
+
+// --- 6. NHL LOGIC ---
 async function checkNHL() {
     try {
         const response = await fetch("https://api-web.nhle.com/v1/score/now");
         const data = await response.json();
-        
-        // Check if 'games' exists and is an array
-        if (!data || !Array.isArray(data.games)) {
-            console.log("🏒 NHL: No games found in current response.");
-            return;
-        }
+        if (!data || !data.games) return;
+
+        // Get today's date in YYYY-MM-DD format to filter out old games
+        const today = new Date().toISOString().split('T')[0];
 
         data.games.forEach(game => {
-            // SAFE ACCESS: If homeTeam or awayTeam is missing, skip this loop
-            if (!game.homeTeam || !game.awayTeam) return;
+            // ONLY process games from today to prevent "Ghost" logs from 4pm games
+            if (game.gameDate !== today) return;
 
-            // Try to find a name, fallback to abbreviation (TOR, NYR, etc.)
+            // FIX: Try Common Name -> Abbreviation -> "Unknown"
             const homeTeam = game.homeTeam.commonName?.default || game.homeTeam.abbreviation || "Unknown";
             const awayTeam = game.awayTeam.commonName?.default || game.awayTeam.abbreviation || "Unknown";
             
@@ -58,66 +100,59 @@ async function checkNHL() {
             const awayScore = game.awayTeam.score ?? 0;
             const scoreSum = homeScore + awayScore;
 
-            // Initialize tracker for new games
             if (!lastProcessedEvents[gameKey]) {
                 lastProcessedEvents[gameKey] = { score: scoreSum, home: homeScore, state: game.gameState };
                 return;
             }
+            const prev = lastProcessedEvents[gameKey];
 
-            // 1. Detect Goals
-            if (scoreSum > lastProcessedEvents[gameKey].score) {
-                const scoringTeam = (homeScore > lastProcessedEvents[gameKey].home) ? homeTeam : awayTeam;
+            // 1. GOAL Detection (Only if the game is LIVE)
+            if (game.gameState === "LIVE" && scoreSum > prev.score) {
+                const scoringTeam = (homeScore > prev.home) ? homeTeam : awayTeam;
                 triggerLights(scoringTeam, "GOAL");
             }
-            
-            // 2. Detect Game/Period Start
-            if (game.gameState === "LIVE" && lastProcessedEvents[gameKey].state === "FUT") {
-                triggerLights(homeTeam, "GAME_START");
-                triggerLights(awayTeam, "GAME_START");
+
+            // 2. WIN Detection (Only trigger when moving to FINAL states)
+            if ((game.gameState === "OFF" || game.gameState === "FINAL") && prev.state === "LIVE") {
+                const winner = (homeScore > awayScore) ? homeTeam : awayTeam;
+                triggerLights(winner, "WIN");
+                console.log(`🏆 GAME FINAL: ${homeTeam} ${homeScore} - ${awayTeam} ${awayScore}`);
             }
 
-            // Update tracker
-            lastProcessedEvents[gameKey] = { 
-                score: scoreSum, 
-                home: homeScore, 
-                state: game.gameState 
-            };
+            lastProcessedEvents[gameKey] = { score: scoreSum, home: homeScore, state: game.gameState };
         });
-    } catch (e) { 
-        console.error("❌ NHL Poll Failed:", e.message); 
-    }
+    } catch (e) { console.error("❌ NHL Error:", e.message); }
 }
 
-// --- MLB LOGIC (Home Runs, Strikeouts, Game Start) ---
+// --- 7. MLB LOGIC ---
 async function checkMLB() {
     try {
-        // 1. Get today's games
-        const schedRes = await fetch("https://statsapi.mlb.com/api/v1/schedule?sportId=1");
-        const schedData = await schedRes.json();
-        const activeGames = schedData.dates[0]?.games.filter(g => g.status.abstractGameState === "Live") || [];
+        const res = await fetch("https://statsapi.mlb.com/api/v1/schedule?sportId=1");
+        const data = await res.json();
+        const games = data.dates?.[0]?.games || [];
 
-        for (let game of activeGames) {
-            const liveRes = await fetch(`https://statsapi.mlb.com/api/v1.1/game/${game.gamePk}/feed/live`);
-            const liveData = await liveRes.json();
-            const lastPlay = liveData.liveData.plays.allPlays.slice(-1)[0];
-
-            if (lastPlay && lastPlay.about.playId !== lastProcessedEvents[game.gamePk]) {
-                const event = lastPlay.result.event; // "Home Run", "Strikeout", etc.
-                const team = lastPlay.team.name.split(' ').pop(); // Gets "Blue Jays" from "Toronto Blue Jays"
-
-                if (["Home Run", "Strikeout", "Game Over"].includes(event)) {
-                    triggerLights(team, event.toUpperCase().replace(' ', '_'));
+        for (let game of games) {
+            const status = game.status.abstractGameState;
+            if (status === "Live") {
+                const live = await (await fetch(`https://statsapi.mlb.com/api/v1.1/game/${game.gamePk}/feed/live`)).json();
+                const lastPlay = live.liveData.plays.allPlays.slice(-1)[0];
+                if (lastPlay && lastPlay.about.playId !== lastProcessedEvents[game.gamePk]) {
+                    const event = lastPlay.result.event;
+                    const team = lastPlay.team.name.split(' ').pop();
+                    if (["Home Run", "Run"].includes(event)) triggerLights(team, event.toUpperCase());
+                    lastProcessedEvents[game.gamePk] = lastPlay.about.playId;
                 }
-                lastProcessedEvents[game.gamePk] = lastPlay.about.playId;
             }
         }
-    } catch (e) { console.error("MLB Error", e); }
+    } catch (e) { console.error("❌ MLB Error:", e.message); }
 }
 
-// --- LOOPS ---
-setInterval(checkNHL, 15000); // Poll NHL every 15s
-setInterval(checkMLB, 15000); // Poll MLB every 15s
+// --- 8. LOOPS & START ---
+setInterval(() => {
+    console.log(`🕒 Heartbeat: ${new Date().toLocaleString("en-US", {timeZone: "America/Toronto"})}`);
+    checkNHL();
+    checkMLB();
+}, 20000);
 
-console.log(`🕒 Heartbeat: Checking sports at ${new Date().toLocaleTimeString()}`);
-
-app.listen(process.env.PORT || 3000, () => console.log("Sports Server Running"));
+app.get('/', (req, res) => res.send("🏆 Sports Server Active"));
+app.listen(process.env.PORT || 3000, () => console.log("🚀 Server Running"));
