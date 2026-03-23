@@ -3,7 +3,6 @@ const app = express();
 app.use(express.json());
 
 // --- 1. LOGGING MIDDLEWARE ---
-// This must come AFTER 'app' is created and BEFORE your routes
 app.use((req, res, next) => {
     if (req.url !== '/device/poll') { 
         console.log(`📥 Incoming ${req.method} request to ${req.url}`);
@@ -11,9 +10,7 @@ app.use((req, res, next) => {
     next();
 });
 
-let userMemory = {}; 
-// ... the rest of your code remains the same
-
+// ONLY DECLARE THESE ONCE
 let userMemory = {}; 
 let deviceQueues = {}; 
 let lastProcessedEvents = {}; 
