@@ -1,5 +1,24 @@
 const express = require('express');
 const app = express();
+const WebSocket = require('ws');
+const { createServer } = require('http');
+
+// This creates the actual engine that handles both Web and WebSockets
+const server = createServer(app);
+const wss = new WebSocket.Server({ noServer: true });
+
+// --- THE UPGRADE HANDSHAKE ---
+server.on('upgrade', (request, socket, head) => {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+    });
+});
+
+wss.on('connection', (ws) => {
+    console.log("🔌 ESP32 connected via WebSocket!");
+    ws.send(JSON.stringify({ message: "Welcome to the Stadium!" }));
+});
+
 app.use(express.json());
 
 // --- 1. LOGGING MIDDLEWARE ---
@@ -152,4 +171,4 @@ setInterval(() => {
 }, 20000);
 
 app.get('/', (req, res) => res.send("🏆 Sports Server Active"));
-app.listen(process.env.PORT || 3000, () => console.log("🚀 Server Running"));
+server.listen(process.env.PORT || 3000, () => console.log("🚀 Server Running"));
