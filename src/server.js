@@ -1,18 +1,18 @@
-app.use((req, res, next) => {
-    console.log(`📥 Incoming ${req.method} request to ${req.url}`);
-    next();
-});
 const express = require('express');
 const app = express();
 app.use(express.json());
 
 // --- 1. LOGGING MIDDLEWARE ---
+// This must come AFTER 'app' is created and BEFORE your routes
 app.use((req, res, next) => {
-    if (req.url !== '/device/poll') { // Keep logs clean of constant polling
+    if (req.url !== '/device/poll') { 
         console.log(`📥 Incoming ${req.method} request to ${req.url}`);
     }
     next();
 });
+
+let userMemory = {}; 
+// ... the rest of your code remains the same
 
 let userMemory = {}; 
 let deviceQueues = {}; 
