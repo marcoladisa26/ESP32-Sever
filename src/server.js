@@ -46,31 +46,35 @@ app.post('/register-preset', (req, res) => {
 
 // --- 3. THE IMPROVED TRIGGER FUNCTION ---
 function triggerLights(teamName, eventType) {
-    // Normalize both inputs to Uppercase and remove accidental spaces
     const cleanTeam = String(teamName).trim();
     const cleanEvent = String(eventType).toUpperCase().trim();
 
     console.log(`📡 API EVENT: ${cleanEvent} for ${cleanTeam}`);
 
-    let matched = false;
     Object.keys(userMemory).forEach(devId => {
         const user = userMemory[devId];
         
-        // Match teams exactly (e.g., "Canadiens" === "Canadiens")
+        // 1. Check if this device is tracking this team
         if (user.trackingTeam === cleanTeam) {
-            matched = true;
-            const command = {
+            console.log(`   🚀 Pushing to WebSocket: ${devId}`);
+
+            // 2. Prepare the EXACT data the ESP32 code expects
+            const pushData = JSON.stringify({
                 presetId: `${cleanEvent}_${Date.now()}`,
-                settings: { audio: user.audioUrl, ...user.presets }
-            };
-            
-            if (!deviceQueues[devId]) deviceQueues[devId] = [];
-            deviceQueues[devId].push(command);
-            console.log(`   ✨ [${devId}] MATCHED! Queuing: ${command.presetId}`);
+                settings: { 
+                    audio: user.audioUrl, 
+                    ...user.presets 
+                }
+            });
+
+            // 3. SHOUT it out to all connected WebSockets
+            wss.clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(pushData);
+                }
+            });
         }
     });
-
-    if (!matched) console.log(`   (No active devices tracking ${cleanTeam})`);
 }
 
 // --- 4. DEVICE POLLING (For ESP32) ---
