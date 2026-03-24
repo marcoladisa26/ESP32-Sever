@@ -59,13 +59,36 @@ function triggerLights(teamName, eventType) {
             console.log(`   🚀 Pushing to WebSocket: ${devId}`);
 
             // 2. Prepare the EXACT data the ESP32 code expects
-            const pushData = JSON.stringify({
-                presetId: `${cleanEvent}_${Date.now()}`,
-                settings: { 
-                    audio: user.audioUrl, 
-                    ...user.presets 
-                }
-            });
+           const pushData = JSON.stringify({
+    presetId: `${cleanEvent}_${Date.now()}`,
+    settings: { 
+        audio: user.audioUrl, 
+        // Manually mapping ensures the ESP32 finds these exact keys
+        seq1_effect: user.presets.seq1_effect,
+        seq1_duration: user.presets.seq1_duration,
+        seq1_speed: user.presets.seq1_speed,
+        seq1_color1: user.presets.seq1_color1,
+        seq1_color2: user.presets.seq1_color2,
+
+        seq2_effect: user.presets.seq2_effect,
+        seq2_duration: user.presets.seq2_duration,
+        seq2_speed: user.presets.seq2_speed,
+        seq2_color1: user.presets.seq2_color1,
+        seq2_color2: user.presets.seq2_color2,
+
+        seq3_effect: user.presets.seq3_effect,
+        seq3_duration: user.presets.seq3_duration,
+        seq3_speed: user.presets.seq3_speed,
+        seq3_color1: user.presets.seq3_color1,
+        seq3_color2: user.presets.seq3_color2,
+
+        seq4_effect: user.presets.seq4_effect,
+        seq4_duration: user.presets.seq4_duration,
+        seq4_speed: user.presets.seq4_speed,
+        seq4_color1: user.presets.seq4_color1,
+        seq4_color2: user.presets.seq4_color2
+    }
+});
 
             // 3. SHOUT it out to all connected WebSockets
             wss.clients.forEach(client => {
