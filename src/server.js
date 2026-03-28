@@ -114,10 +114,10 @@ const pushData = JSON.stringify({
 });
 
             // 3. SHOUT it out to all connected WebSockets
-            wss.clients.forEach(client => {
-    if (client.readyState === 1) { // 1 means WebSocket.OPEN
-        client.send(pushData);
-        console.log("🚀 Data pushed to ESP32");
+    wss.clients.forEach(client => {
+        if (client.readyState === 1) { // 1 means WebSocket.OPEN
+            client.send(pushData);
+            console.log("🚀 Data pushed to ESP32");
     }
 });
             
