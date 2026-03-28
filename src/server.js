@@ -115,14 +115,12 @@ const pushData = JSON.stringify({
 
             // 3. SHOUT it out to all connected WebSockets
             wss.clients.forEach(client => {
-                if (client.readyState === WebSocket.OPEN) {
-                    client.send(pushData);
-                }
-            });
-        }
-    });
-}
-
+    if (client.readyState === 1) { // 1 means WebSocket.OPEN
+        client.send(pushData);
+        console.log("🚀 Data pushed to ESP32");
+    }
+});
+            
 // --- 4. DEVICE POLLING (For ESP32) ---
 app.get('/device/poll', (req, res) => {
     const { deviceId } = req.query;
