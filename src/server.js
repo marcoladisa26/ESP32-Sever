@@ -35,13 +35,33 @@ let deviceQueues = {};
 let lastProcessedEvents = {}; 
 
 // --- 2. REGISTRATION (From Glide) ---
-app.post('/register-preset', (req, res) => {
-    const { deviceId, trackingTeam, audioUrl, ...presets } = req.body;
-    if (!deviceId) return res.status(400).json({ error: "Missing deviceId" });
-    
-    userMemory[deviceId] = { trackingTeam, audioUrl, presets };
-    console.log(`✅ Registered: ${deviceId} watching ${trackingTeam}`);
-    res.json({ success: true });
+// Look for this route in your server.js
+app.post('/save-preset', (req, res) => {
+    const { deviceId, audioUrl, ...presets } = req.body;
+
+    // 1. Update your local memory first
+    if (userMemory[deviceId]) {
+        userMemory[deviceId].audioUrl = audioUrl;
+        userMemory[deviceId].presets = presets;
+        
+        console.log(`💾 Preset updated for ${deviceId}`);
+
+        // 2. PASTE THE PREPARE LOGIC HERE
+        const prepareData = JSON.stringify({
+            type: "PREPARE",
+            audioUrl: audioUrl, 
+            fileId: Buffer.from(audioUrl).toString('base64').substring(0, 8) 
+        });
+
+        // This sends the "Download now!" command to the ESP32
+        wss.clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(prepareData);
+            }
+        });
+    }
+
+    res.status(200).send("OK");
 });
 
 // --- 3. THE IMPROVED TRIGGER FUNCTION ---
