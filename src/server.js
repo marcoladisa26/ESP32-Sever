@@ -59,7 +59,7 @@ function triggerLights(teamName, eventType) {
             console.log(`   🚀 Pushing to WebSocket: ${devId}`);
 
             // 2. Prepare the EXACT data the ESP32 code expects
-           const pushData = JSON.stringify({
+    const pushData = JSON.stringify({
     presetId: `${cleanEvent}_${Date.now()}`,
     settings: { 
         audio: user.audioUrl, 
