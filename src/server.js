@@ -59,10 +59,13 @@ function triggerLights(teamName, eventType) {
             console.log(`   🚀 Pushing to WebSocket: ${devId}`);
 
             // 2. Prepare the EXACT data the ESP32 code expects
-    const pushData = JSON.stringify({
+    console.log("DEBUG: Current User Presets from Memory:", JSON.stringify(user.presets, null, 2));
+
+const pushData = JSON.stringify({
     presetId: `${cleanEvent}_${Date.now()}`,
     settings: { 
-        audio: user.audioUrl, 
+        audio: user.audioUrl,
+        
         // Manually mapping ensures the ESP32 finds these exact keys
         seq1_effect: user.presets.seq1_effect,
         seq1_duration: user.presets.seq1_duration,
