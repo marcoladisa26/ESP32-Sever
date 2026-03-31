@@ -71,57 +71,28 @@ function triggerLights(teamName, eventType) {
 
     console.log(`📡 API EVENT: ${cleanEvent} for ${cleanTeam}`);
 
-    Object.keys(userMemory).forEach(devId => {
-        const user = userMemory[devId];
+    // Create the data (Use a generic audio URL if userMemory is failing)
+    const pushData = JSON.stringify({
+        presetId: `TEST_${Date.now()}`,
+        settings: {
+            audio: "https://www.myinstants.com/media/sounds/goal-horn.mp3", // Temporary test sound
+            seq1_effect: "solid",
+            seq1_duration: 5,
+            seq1_speed: 50,
+            seq1_color1: "#FF0000",
+            seq1_color2: "#FFFFFF"
+        }
+    });
 
-        // 1. Check if this device is tracking this team
-        if (user.trackingTeam === cleanTeam) {
-            console.log(`🚀 Pushing to WebSocket: ${devId}`);
-
-            // 2. Prepare the EXACT data the ESP32 code expects
-            console.log("DEBUG: Current User Presets from Memory:", JSON.stringify(user.presets, null, 2));
-
-            const pushData = JSON.stringify({
-                presetId: `${cleanEvent}_${Date.now()}`,
-                settings: {
-                    audio: user.audioUrl,
-                    // Sequence 1
-                    seq1_effect: user.presets.seq1_effect,
-                    seq1_duration: user.presets.seq1_duration,
-                    seq1_speed: user.presets.seq1_speed,
-                    seq1_color1: user.presets.seq1_color1,
-                    seq1_color2: user.presets.seq1_color2,
-                    // Sequence 2
-                    seq2_effect: user.presets.seq2_effect,
-                    seq2_duration: user.presets.seq2_duration,
-                    seq2_speed: user.presets.seq2_speed,
-                    seq2_color1: user.presets.seq2_color1,
-                    seq2_color2: user.presets.seq2_color2,
-                    // Sequence 3
-                    seq3_effect: user.presets.seq3_effect,
-                    seq3_duration: user.presets.seq3_duration,
-                    seq3_speed: user.presets.seq3_speed,
-                    seq3_color1: user.presets.seq3_color1,
-                    seq3_color2: user.presets.seq3_color2,
-                    // Sequence 4
-                    seq4_effect: user.presets.seq4_effect,
-                    seq4_duration: user.presets.seq4_duration,
-                    seq4_speed: user.presets.seq4_speed,
-                    seq4_color1: user.presets.seq4_color1,
-                    seq4_color2: user.presets.seq4_color2
-                }
-            });
-
-            // 3. SHOUT it out to all connected WebSockets
-            wss.clients.forEach(client => {
-                if (client.readyState === 1) { // 1 means WebSocket.OPEN
-                    client.send(pushData);
-                    console.log("🚀 Data pushed to ESP32");
-                }
-            });
-        } // End if trackingTeam
-    }); // End Object.keys().forEach
-} // End triggerLights function
+    // SEND TO EVERYONE - No more "if trackingTeam" check
+    console.log(`Checking ${wss.clients.size} connected clients...`);
+    wss.clients.forEach(client => {
+        if (client.readyState === 1) {
+            client.send(pushData);
+            console.log("🚀 FORCED PUSH: Sent to a connected ESP32!");
+        }
+    });
+}
             
 // --- 4. DEVICE POLLING (For ESP32) ---
 app.get('/device/poll', (req, res) => {
