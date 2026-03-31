@@ -16,31 +16,23 @@ server.on('upgrade', (request, socket, head) => {
 
 // --- 3. THE CONNECTION HANDLER ---
 wss.on('connection', (ws) => {
-    console.log("🔌 NEW DEVICE JOINED THE GATEWAY");
+    console.log("🔌 New connection at the gateway...");
     ws.isAlive = true;
 
-    // This listens for the "IDENTIFY" message from the ESP32
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
             if (data.type === 'IDENTIFY') {
-                // We attach the deviceId directly to this specific connection
+                // IMPORTANT: We attach the ID to the 'ws' object itself
                 ws.deviceId = data.deviceId; 
-                console.log(`🆔 Verified: ${ws.deviceId} is now reachable.`);
-                
-                // Optional: Send a confirmation back to the ESP32
-                ws.send(JSON.stringify({ status: "Registered", device: ws.deviceId }));
+                console.log(`🆔 Verified: Device [${ws.deviceId}] is now ONLINE`);
             }
         } catch (e) {
-            console.log("Received non-JSON message:", message.toString());
+            console.log("Non-JSON message received:", message.toString());
         }
     });
 
     ws.on('pong', () => { ws.isAlive = true; });
-    
-    ws.on('close', () => {
-        console.log(`🔌 Device ${ws.deviceId || 'Unknown'} disconnected.`);
-    });
 });
 
 // --- 1. LOGGING MIDDLEWARE ---
@@ -59,25 +51,29 @@ let lastProcessedEvents = {};
 // --- 2. REGISTRATION (From Glide) ---
 // Look for this route in your server.js
 app.post('/save-preset', (req, res) => {
-    const { deviceId, audioUrl, ...presets } = req.body;
+    // We pull trackingTeam out of the req.body as well
+    const { deviceId, audioUrl, trackingTeam, ...presets } = req.body;
 
-    // 1. Update your local memory first
-    if (userMemory[deviceId]) {
-        userMemory[deviceId].audioUrl = audioUrl;
-        userMemory[deviceId].presets = presets;
-        
-        console.log(`💾 Preset updated for ${deviceId}`);
+    console.log(`📥 Save Request for: ${deviceId} (Tracking: ${trackingTeam})`);
 
-        // 2. PASTE THE PREPARE LOGIC HERE
+    // 1. Initialize or update user memory
+    if (!userMemory[deviceId]) userMemory[deviceId] = {};
+    
+    userMemory[deviceId].audioUrl = audioUrl;
+    userMemory[deviceId].trackingTeam = trackingTeam || "Canadiens"; // Save the team!
+    userMemory[deviceId].presets = presets;
+    
+    console.log(`💾 Preset updated for ${deviceId}. Now tracking: ${userMemory[deviceId].trackingTeam}`);
+
+    // 2. Prepare the MP3 for the ESP32
+    if (audioUrl) {
         const prepareData = JSON.stringify({
             type: "PREPARE",
-            audioUrl: audioUrl, 
-            fileId: Buffer.from(audioUrl).toString('base64').substring(0, 8) 
+            audioUrl: audioUrl
         });
 
-        // This sends the "Download now!" command to the ESP32
         wss.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
+            if (client.readyState === 1) { // 1 = WebSocket.OPEN
                 client.send(prepareData);
             }
         });
