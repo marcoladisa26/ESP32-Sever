@@ -96,17 +96,20 @@ function triggerLights(teamName, eventType) {
     const cleanTeam = String(teamName).trim();
     const cleanEvent = String(eventType).toUpperCase().trim();
 
-    console.log(`📡 API EVENT: ${cleanEvent} for ${cleanTeam}`);
+    console.log(`📡 API EVENT RECEIVED: ${cleanEvent} for ${cleanTeam}`);
 
+    // Loop through everyone in memory to see who is tracking THIS team
     Object.keys(userMemory).forEach(devId => {
         const user = userMemory[devId];
 
-        // 1. Check if this device is tracking this team
+        // 1. STRICT CHECK: Does the URL team match the User's team?
         if (user.trackingTeam === cleanTeam) {
-            console.log(`🚀 Pushing to WebSocket: ${devId}`);
-
-            // 2. Prepare the EXACT data the ESP32 code expects
-            console.log("DEBUG: Current User Presets from Memory:", JSON.stringify(user.presets, null, 2));
+            
+            // 2. CHECK: Does the Event (Run/Win) match the User's selection?
+            const userEvents = String(user.presets.event || "").toUpperCase();
+            
+            if (userEvents.includes(cleanEvent)) {
+                console.log(`✅ MATCH FOUND for ${devId}! Pushing data...`);
 
             const pushData = JSON.stringify({
                 presetId: `${cleanEvent}_${Date.now()}`,
@@ -142,14 +145,19 @@ function triggerLights(teamName, eventType) {
 
             // 3. SHOUT it out to all connected WebSockets
             wss.clients.forEach(client => {
-                if (client.readyState === 1) { // 1 means WebSocket.OPEN
-                    client.send(pushData);
-                    console.log("🚀 Data pushed to ESP32");
-                }
-            });
-        } // End if trackingTeam
-    }); // End Object.keys().forEach
-} // End triggerLights function
+                    if (client.readyState === 1 && client.deviceId === devId) {
+                        client.send(pushData);
+                        console.log(`🚀 Data sent to ${devId}`);
+                    }
+                });
+            } else {
+                console.log(`❌ Event [${cleanEvent}] ignored. User only wants: [${userEvents}]`);
+            }
+        } else {
+            console.log(`⏭️ Skipping ${devId}: They are tracking [${user.trackingTeam}], not [${cleanTeam}]`);
+        }
+    });
+}
             
 // --- 4. DEVICE POLLING (For ESP32) ---
 app.get('/device/poll', (req, res) => {
