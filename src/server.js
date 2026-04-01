@@ -7,6 +7,8 @@ const { createServer } = require('http');
 const server = createServer(app);
 const wss = new WebSocket.Server({ noServer: true });
 
+app.use(express.json());
+
 // --- THE UPGRADE HANDSHAKE ---
 server.on('upgrade', (request, socket, head) => {
     wss.handleUpgrade(request, socket, head, (ws) => {
