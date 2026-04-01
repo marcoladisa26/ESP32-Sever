@@ -51,30 +51,37 @@ let lastProcessedEvents = {};
 // --- 2. REGISTRATION (From Glide) ---
 // Look for this route in your server.js
 app.post('/save-preset', (req, res) => {
-    // We pull trackingTeam out of the req.body as well
-    const { deviceId, audioUrl, trackingTeam, ...presets } = req.body;
+    console.log("📥 Raw Data from Glide:", JSON.stringify(req.body));
 
-    console.log(`📥 Save Request for: ${deviceId} (Tracking: ${trackingTeam})`);
+    // This line prevents the crash. If req.body is empty or missing deviceId, 
+    // it falls back to 'esp32_01' instead of breaking.
+    const deviceId = req.body.deviceId || req.body.device || "esp32_01";
+    const audioUrl = req.body.audioUrl || req.body["Audio Link"] || "";
+    const trackingTeam = req.body.trackingTeam || req.body.Team || "Canadiens";
 
-    // 1. Initialize or update user memory
-    if (!userMemory[deviceId]) userMemory[deviceId] = {};
+    // 1. Initialize memory for this device if it doesn't exist
+    if (!userMemory[deviceId]) {
+        userMemory[deviceId] = { presets: {} };
+    }
     
+    // 2. Save the data
     userMemory[deviceId].audioUrl = audioUrl;
-    userMemory[deviceId].trackingTeam = trackingTeam || "Canadiens"; // Save the team!
-    userMemory[deviceId].presets = presets;
+    userMemory[deviceId].trackingTeam = trackingTeam;
+    userMemory[deviceId].presets = req.body; // Keep the rest for the trigger logic
     
-    console.log(`💾 Preset updated for ${deviceId}. Now tracking: ${userMemory[deviceId].trackingTeam}`);
+    console.log(`💾 Saved for ${deviceId}: Tracking ${trackingTeam}`);
 
-    // 2. Prepare the MP3 for the ESP32
-    if (audioUrl) {
+    // 3. Tell the ESP32 to prepare the audio
+    if (audioUrl && audioUrl.length > 5) {
         const prepareData = JSON.stringify({
             type: "PREPARE",
             audioUrl: audioUrl
         });
 
         wss.clients.forEach(client => {
-            if (client.readyState === 1) { // 1 = WebSocket.OPEN
+            if (client.readyState === 1) { 
                 client.send(prepareData);
+                console.log("📨 Sent PREPARE command to ESP32");
             }
         });
     }
