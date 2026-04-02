@@ -51,39 +51,38 @@ let deviceQueues = {};
 let lastProcessedEvents = {}; 
 
 // --- 2. REGISTRATION (From Glide) ---
-// Look for this route in your server.js
 app.post('/save-preset', (req, res) => {
-    console.log("📥 Raw Data from Glide:", JSON.stringify(req.body));
+    const { deviceId, presetName, audioUrl, trackingTeam, ...settings } = req.body;
 
-    // This line prevents the crash. If req.body is empty or missing deviceId, 
-    // it falls back to 'esp32_01' instead of breaking.
-    const deviceId = req.body.deviceId || req.body.device || "esp32_01";
-    const audioUrl = req.body.audioUrl || req.body["Audio Link"] || "";
-    const trackingTeam = req.body.trackingTeam || req.body.Team || "Canadiens";
-
-    // 1. Initialize memory for this device if it doesn't exist
-    if (!userMemory[deviceId]) {
-        userMemory[deviceId] = { presets: {} };
+    if (!deviceId || !presetName) {
+        return res.status(400).send("Missing Device ID or Preset Name");
     }
-    
-    // 2. Save the data
-    userMemory[deviceId].audioUrl = audioUrl;
+
+    // 1. Initialize the device folder if it's new
+    if (!userMemory[deviceId]) {
+        userMemory[deviceId] = { 
+            trackingTeam: trackingTeam || "Blue Jays",
+            presets: {} 
+        };
+    }
+
+    // 2. Update the tracking team (Global for the device)
     userMemory[deviceId].trackingTeam = trackingTeam;
-    userMemory[deviceId].presets = req.body; // Keep the rest for the trigger logic
-    
-    console.log(`💾 Saved for ${deviceId}: Tracking ${trackingTeam}`);
 
-    // 3. Tell the ESP32 to prepare the audio
-    if (audioUrl && audioUrl.length > 5) {
-        const prepareData = JSON.stringify({
-            type: "PREPARE",
-            audioUrl: audioUrl
-        });
+    // 3. Save or Update the specific preset inside that device's folder
+    userMemory[deviceId].presets[presetName] = {
+        audioUrl: audioUrl,
+        ...settings
+    };
 
+    console.log(`💾 [${deviceId}] Saved Preset: "${presetName}" for Team: ${trackingTeam}`);
+
+    // 4. Trigger PREPARE (Download) if audio changed
+    if (audioUrl) {
+        const prepareData = JSON.stringify({ type: "PREPARE", audioUrl: audioUrl });
         wss.clients.forEach(client => {
-            if (client.readyState === 1) { 
+            if (client.readyState === 1 && client.deviceId === deviceId) {
                 client.send(prepareData);
-                console.log("📨 Sent PREPARE command to ESP32");
             }
         });
     }
@@ -101,16 +100,14 @@ function triggerLights(teamName, eventType) {
     Object.keys(userMemory).forEach(devId => {
         const user = userMemory[devId];
 
-        // 1. Check if the Team matches
         if (user.trackingTeam === cleanTeam) {
-            
-            // 2. MULTI-EVENT LOGIC:
-            // Pull the events from Glide and make them Uppercase to match the API
-            const userEvents = String(user.presets.event || "").toUpperCase();
+            // Look through every preset saved for this device
+            Object.keys(user.presets).forEach(pName => {
+                const preset = user.presets[pName];
+                const allowedEvents = String(preset.event || "").toUpperCase();
 
-            // Check if the current API event (e.g., "RUN") is in the list (e.g., "STRICKOUT, RUN, HOMERUN")
-            if (userEvents.includes(cleanEvent)) {
-                console.log(`✅ MATCH FOUND: [${cleanEvent}] is in your list [${userEvents}]`);
+                if (allowedEvents.includes(cleanEvent)) {
+                    console.log(`🔥 TRIGGER: [${pName}] matches [${cleanEvent}]`);
 
             const pushData = JSON.stringify({
                 presetId: `${cleanEvent}_${Date.now()}`,
@@ -146,14 +143,13 @@ function triggerLights(teamName, eventType) {
 
             // 3. SHOUT it out to all connected WebSockets
             wss.clients.forEach(client => {
-                    if (client.readyState === 1 && client.deviceId === devId) {
-                        client.send(pushData);
-                        console.log(`🚀 Data sent to ${devId}`);
-                    }
-                });
-            } else {
-                console.log(`⏭️ Event [${cleanEvent}] ignored. You only selected: [${userEvents}]`);
-            }
+                        if (client.readyState === 1 && client.deviceId === devId) {
+                            client.send(pushData);
+                            console.log(`🚀 Data sent to ${devId} for preset: ${pName}`);
+                        }
+                    });
+                }
+            });
         }
     });
 }
