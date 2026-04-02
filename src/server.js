@@ -98,18 +98,19 @@ function triggerLights(teamName, eventType) {
 
     console.log(`📡 API EVENT RECEIVED: ${cleanEvent} for ${cleanTeam}`);
 
-    // Loop through everyone in memory to see who is tracking THIS team
     Object.keys(userMemory).forEach(devId => {
         const user = userMemory[devId];
 
-        // 1. STRICT CHECK: Does the URL team match the User's team?
+        // 1. Check if the Team matches
         if (user.trackingTeam === cleanTeam) {
             
-            // 2. CHECK: Does the Event (Run/Win) match the User's selection?
+            // 2. MULTI-EVENT LOGIC:
+            // Pull the events from Glide and make them Uppercase to match the API
             const userEvents = String(user.presets.event || "").toUpperCase();
-            
+
+            // Check if the current API event (e.g., "RUN") is in the list (e.g., "STRICKOUT, RUN, HOMERUN")
             if (userEvents.includes(cleanEvent)) {
-                console.log(`✅ MATCH FOUND for ${devId}! Pushing data...`);
+                console.log(`✅ MATCH FOUND: [${cleanEvent}] is in your list [${userEvents}]`);
 
             const pushData = JSON.stringify({
                 presetId: `${cleanEvent}_${Date.now()}`,
@@ -151,10 +152,8 @@ function triggerLights(teamName, eventType) {
                     }
                 });
             } else {
-                console.log(`❌ Event [${cleanEvent}] ignored. User only wants: [${userEvents}]`);
+                console.log(`⏭️ Event [${cleanEvent}] ignored. You only selected: [${userEvents}]`);
             }
-        } else {
-            console.log(`⏭️ Skipping ${devId}: They are tracking [${user.trackingTeam}], not [${cleanTeam}]`);
         }
     });
 }
