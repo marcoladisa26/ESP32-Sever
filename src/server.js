@@ -53,7 +53,8 @@ let lastProcessedEvents = {};
 // --- 2. REGISTRATION (From Glide) ---
 app.post('/save-preset', (req, res) => {
     const { deviceId, presetName, audioUrl, trackingTeam, ...settings } = req.body;
-
+    console.log("📥 Incoming Data from Glide:", JSON.stringify(req.body));
+    
     if (!deviceId || !presetName) {
         return res.status(400).send("Missing Device ID or Preset Name");
     }
