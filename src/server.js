@@ -118,6 +118,9 @@ function triggerLights(teamName, eventType) {
             });
         } else {
             console.log(`   ⏭️ Skipping: Team mismatch.`);
+        }
+    });
+}
 
             const pushData = JSON.stringify({
                 presetId: `${cleanEvent}_${Date.now()}`,
