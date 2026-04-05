@@ -103,66 +103,61 @@ function triggerLights(teamName, eventType) {
         console.log(`🔍 Checking Device: ${devId} (Tracking: ${user.trackingTeam})`);
 
         if (user.trackingTeam === cleanTeam) {
+            // Loop through each preset saved for this device
             Object.keys(user.presets).forEach(pName => {
                 const preset = user.presets[pName];
                 const allowedEvents = String(preset.event || "").toUpperCase();
-                
+
                 console.log(`   👉 Checking Preset: "${pName}" | Looking for: [${allowedEvents}]`);
 
                 if (allowedEvents.includes(cleanEvent)) {
                     console.log(`   ✅ MATCH! Sending Sequence Data for ${pName}...`);
-                    // ... the rest of your pushData code ...
-                } else {
-                    console.log(`   ❌ No match in this preset.`);
-                }
-            });
-        } else {
-            console.log(`   ⏭️ Skipping: Team mismatch.`);
-        }
-    });
-}
 
-            const pushData = JSON.stringify({
-                presetId: `${cleanEvent}_${Date.now()}`,
-                settings: {
-                    audio: user.audioUrl,
-                    // Sequence 1
-                    seq1_effect: user.presets.seq1_effect,
-                    seq1_duration: user.presets.seq1_duration,
-                    seq1_speed: user.presets.seq1_speed,
-                    seq1_color1: user.presets.seq1_color1,
-                    seq1_color2: user.presets.seq1_color2,
-                    // Sequence 2
-                    seq2_effect: user.presets.seq2_effect,
-                    seq2_duration: user.presets.seq2_duration,
-                    seq2_speed: user.presets.seq2_speed,
-                    seq2_color1: user.presets.seq2_color1,
-                    seq2_color2: user.presets.seq2_color2,
-                    // Sequence 3
-                    seq3_effect: user.presets.seq3_effect,
-                    seq3_duration: user.presets.seq3_duration,
-                    seq3_speed: user.presets.seq3_speed,
-                    seq3_color1: user.presets.seq3_color1,
-                    seq3_color2: user.presets.seq3_color2,
-                    // Sequence 4
-                    seq4_effect: user.presets.seq4_effect,
-                    seq4_duration: user.presets.seq4_duration,
-                    seq4_speed: user.presets.seq4_speed,
-                    seq4_color1: user.presets.seq4_color1,
-                    seq4_color2: user.presets.seq4_color2
-                }
-            });
+                    // We create the pushData INSIDE the match check
+                    const pushData = JSON.stringify({
+                        presetId: `${pName}_${Date.now()}`,
+                        settings: {
+                            audio: preset.audioUrl,
+                            // Sequence 1
+                            seq1_effect: preset.seq1_effect,
+                            seq1_duration: preset.seq1_duration,
+                            seq1_speed: preset.seq1_speed,
+                            seq1_color1: preset.seq1_color1,
+                            seq1_color2: preset.seq1_color2,
+                            // Sequence 2
+                            seq2_effect: preset.seq2_effect,
+                            seq2_duration: preset.seq2_duration,
+                            seq2_speed: preset.seq2_speed,
+                            seq2_color1: preset.seq2_color1,
+                            seq2_color2: preset.seq2_color2,
+                            // Sequence 3
+                            seq3_effect: preset.seq3_effect,
+                            seq3_duration: preset.seq3_duration,
+                            seq3_speed: preset.seq3_speed,
+                            seq3_color1: preset.seq3_color1,
+                            seq3_color2: preset.seq3_color2,
+                            // Sequence 4
+                            seq4_effect: preset.seq4_effect,
+                            seq4_duration: preset.seq4_duration,
+                            seq4_speed: preset.seq4_speed,
+                            seq4_color1: preset.seq4_color1,
+                            seq4_color2: preset.seq4_color2
+                        }
+                    });
 
-
-            // 3. SHOUT it out to all connected WebSockets
-            wss.clients.forEach(client => {
+                    // Send to the specific device
+                    wss.clients.forEach(client => {
                         if (client.readyState === 1 && client.deviceId === devId) {
                             client.send(pushData);
                             console.log(`🚀 Data sent to ${devId} for preset: ${pName}`);
                         }
                     });
+                } else {
+                    console.log(`   ❌ No match in preset: "${pName}"`);
                 }
             });
+        } else {
+            console.log(`   ⏭️ Skipping: Team mismatch.`);
         }
     });
 }
