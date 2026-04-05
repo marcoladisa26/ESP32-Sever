@@ -100,15 +100,24 @@ function triggerLights(teamName, eventType) {
 
     Object.keys(userMemory).forEach(devId => {
         const user = userMemory[devId];
+        console.log(`🔍 Checking Device: ${devId} (Tracking: ${user.trackingTeam})`);
 
         if (user.trackingTeam === cleanTeam) {
-            // Look through every preset saved for this device
             Object.keys(user.presets).forEach(pName => {
                 const preset = user.presets[pName];
                 const allowedEvents = String(preset.event || "").toUpperCase();
+                
+                console.log(`   👉 Checking Preset: "${pName}" | Looking for: [${allowedEvents}]`);
 
                 if (allowedEvents.includes(cleanEvent)) {
-                    console.log(`🔥 TRIGGER: [${pName}] matches [${cleanEvent}]`);
+                    console.log(`   ✅ MATCH! Sending Sequence Data for ${pName}...`);
+                    // ... the rest of your pushData code ...
+                } else {
+                    console.log(`   ❌ No match in this preset.`);
+                }
+            });
+        } else {
+            console.log(`   ⏭️ Skipping: Team mismatch.`);
 
             const pushData = JSON.stringify({
                 presetId: `${cleanEvent}_${Date.now()}`,
