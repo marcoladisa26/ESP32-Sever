@@ -86,30 +86,6 @@ app.post('/save-preset', (req, res) => {
     res.status(200).send("OK");
 });
 
-    // 2. Update the tracking team (Global for the device)
-    userMemory[deviceId].trackingTeam = trackingTeam;
-
-    // 3. Save or Update the specific preset inside that device's folder
-    userMemory[deviceId].presets[presetName] = {
-        audioUrl: audioUrl,
-        ...settings
-    };
-
-    console.log(`💾 [${deviceId}] Saved Preset: "${presetName}" for Team: ${trackingTeam}`);
-
-    // 4. Trigger PREPARE (Download) if audio changed
-    if (audioUrl) {
-        const prepareData = JSON.stringify({ type: "PREPARE", audioUrl: audioUrl });
-        wss.clients.forEach(client => {
-            if (client.readyState === 1 && client.deviceId === deviceId) {
-                client.send(prepareData);
-            }
-        });
-    }
-
-    res.status(200).send("OK");
-});
-
 // --- 3. THE IMPROVED TRIGGER FUNCTION ---
 function triggerLights(teamName, eventType) {
     const cleanTeam = String(teamName).trim();
