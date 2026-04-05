@@ -52,20 +52,39 @@ let lastProcessedEvents = {};
 
 // --- 2. REGISTRATION (From Glide) ---
 app.post('/save-preset', (req, res) => {
-    const { deviceId, presetName, audioUrl, trackingTeam, ...settings } = req.body;
     console.log("📥 Incoming Data from Glide:", JSON.stringify(req.body));
-    
+    const { deviceId, presetName, audioUrl, trackingTeam, ...settings } = req.body;
+
     if (!deviceId || !presetName) {
         return res.status(400).send("Missing Device ID or Preset Name");
     }
 
     // 1. Initialize the device folder if it's new
     if (!userMemory[deviceId]) {
-        userMemory[deviceId] = { 
-            trackingTeam: trackingTeam || "Blue Jays",
-            presets: {} 
-        };
+        userMemory[deviceId] = { presets: {} };
     }
+
+    // 2. Save the preset AND its specific team together
+    userMemory[deviceId].presets[presetName] = {
+        audioUrl: audioUrl,
+        trackingTeam: trackingTeam || "Blue Jays", // Store team INSIDE the preset
+        ...settings
+    };
+
+    console.log(`💾 [${deviceId}] Saved Preset: "${presetName}" | Team: ${trackingTeam}`);
+
+    // 3. Trigger PREPARE (Download)
+    if (audioUrl) {
+        const prepareData = JSON.stringify({ type: "PREPARE", audioUrl: audioUrl });
+        wss.clients.forEach(client => {
+            if (client.readyState === 1 && client.deviceId === deviceId) {
+                client.send(prepareData);
+            }
+        });
+    }
+
+    res.status(200).send("OK");
+});
 
     // 2. Update the tracking team (Global for the device)
     userMemory[deviceId].trackingTeam = trackingTeam;
@@ -100,65 +119,61 @@ function triggerLights(teamName, eventType) {
 
     Object.keys(userMemory).forEach(devId => {
         const user = userMemory[devId];
-        console.log(`🔍 Checking Device: ${devId} (Tracking: ${user.trackingTeam})`);
+        console.log(`🔍 Checking Device: ${devId}`);
 
-        if (user.trackingTeam === cleanTeam) {
-            // Loop through each preset saved for this device
-            Object.keys(user.presets).forEach(pName => {
-                const preset = user.presets[pName];
-                const allowedEvents = String(preset.event || "").toUpperCase();
+        // Loop through every preset saved in this device's "folder"
+        Object.keys(user.presets).forEach(pName => {
+            const preset = user.presets[pName];
+            
+            // 1. Check if THIS specific preset is tracking THIS team
+            const presetTeam = String(preset.trackingTeam || "").trim();
+            const allowedEvents = String(preset.event || "").toUpperCase();
 
-                console.log(`   👉 Checking Preset: "${pName}" | Looking for: [${allowedEvents}]`);
+            console.log(`   👉 Checking Preset: "${pName}" | Team: ${presetTeam} | Events: [${allowedEvents}]`);
 
-                if (allowedEvents.includes(cleanEvent)) {
-                    console.log(`   ✅ MATCH! Sending Sequence Data for ${pName}...`);
+            if (presetTeam === cleanTeam && allowedEvents.includes(cleanEvent)) {
+                console.log(`   ✅ FULL MATCH! Sending Data for ${pName}...`);
 
-                    // We create the pushData INSIDE the match check
-                    const pushData = JSON.stringify({
-                        presetId: `${pName}_${Date.now()}`,
-                        settings: {
-                            audio: preset.audioUrl,
-                            // Sequence 1
-                            seq1_effect: preset.seq1_effect,
-                            seq1_duration: preset.seq1_duration,
-                            seq1_speed: preset.seq1_speed,
-                            seq1_color1: preset.seq1_color1,
-                            seq1_color2: preset.seq1_color2,
-                            // Sequence 2
-                            seq2_effect: preset.seq2_effect,
-                            seq2_duration: preset.seq2_duration,
-                            seq2_speed: preset.seq2_speed,
-                            seq2_color1: preset.seq2_color1,
-                            seq2_color2: preset.seq2_color2,
-                            // Sequence 3
-                            seq3_effect: preset.seq3_effect,
-                            seq3_duration: preset.seq3_duration,
-                            seq3_speed: preset.seq3_speed,
-                            seq3_color1: preset.seq3_color1,
-                            seq3_color2: preset.seq3_color2,
-                            // Sequence 4
-                            seq4_effect: preset.seq4_effect,
-                            seq4_duration: preset.seq4_duration,
-                            seq4_speed: preset.seq4_speed,
-                            seq4_color1: preset.seq4_color1,
-                            seq4_color2: preset.seq4_color2
-                        }
-                    });
+                const pushData = JSON.stringify({
+                    presetId: `${pName}_${Date.now()}`,
+                    settings: {
+                        audio: preset.audioUrl,
+                        seq1_effect: preset.seq1_effect,
+                        seq1_duration: preset.seq1_duration,
+                        seq1_speed: preset.seq1_speed,
+                        seq1_color1: preset.seq1_color1,
+                        seq1_color2: preset.seq1_color2,
+                        
+                        seq2_effect: preset.seq2_effect,
+                        seq2_duration: preset.seq2_duration,
+                        seq2_speed: preset.seq2_speed,
+                        seq2_color1: preset.seq2_color1,
+                        seq2_color2: preset.seq2_color2,
+                        
+                        seq3_effect: preset.seq3_effect,
+                        seq3_duration: preset.seq3_duration,
+                        seq3_speed: preset.seq3_speed,
+                        seq3_color1: preset.seq3_color1,
+                        seq3_color2: preset.seq3_color2,
+                        
+                        seq4_effect: preset.seq4_effect,
+                        seq4_duration: preset.seq4_duration,
+                        seq4_speed: preset.seq4_speed,
+                        seq4_color1: preset.seq4_color1,
+                        seq4_color2: preset.seq4_color2
+                    }
+                });
 
-                    // Send to the specific device
-                    wss.clients.forEach(client => {
-                        if (client.readyState === 1 && client.deviceId === devId) {
-                            client.send(pushData);
-                            console.log(`🚀 Data sent to ${devId} for preset: ${pName}`);
-                        }
-                    });
-                } else {
-                    console.log(`   ❌ No match in preset: "${pName}"`);
-                }
-            });
-        } else {
-            console.log(`   ⏭️ Skipping: Team mismatch.`);
-        }
+                wss.clients.forEach(client => {
+                    if (client.readyState === 1 && client.deviceId === devId) {
+                        client.send(pushData);
+                        console.log(`🚀 Data sent to ${devId} for preset: ${pName}`);
+                    }
+                });
+            } else {
+                console.log(`   ❌ No match (Team or Event mismatch).`);
+            }
+        });
     });
 }
             
