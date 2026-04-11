@@ -176,30 +176,29 @@ app.get('/test-trigger', (req, res) => {
 // --- 6. NHL LOGIC ---
 async function checkNHL() {
     try {
+        // FIXED: Only declare 'today' once using the Toronto Time logic
         const today = new Date().toLocaleDateString('en-CA', {timeZone: 'America/Toronto'});
-        const url = `https://api-web.nhle.com/v1/schedule/now`; // Gets current week
+        
+        const url = `https://api-web.nhle.com/v1/schedule/${today}`; 
         const response = await fetch(url);
         const data = await response.json();
 
-        // Get today's games from the schedule
-        const today = new Date().toISOString().split('T')[0];
-        const todayData = data.gameWeek.find(day => day.date === today);
+        // The NHL API returns games in a slightly different format for daily schedules
+        if (!data.games || data.games.length === 0) return;
 
-        if (!todayData) return;
-
-        todayData.games.forEach(game => {
-            const homeTeam = game.homeTeam.abbrev; // e.g. "MTL"
-            const awayTeam = game.awayTeam.abbrev; // e.g. "TOR"
+        data.games.forEach(game => {
+            const homeTeam = game.homeTeam.abbrev; 
+            const awayTeam = game.awayTeam.abbrev; 
 
             Object.values(userMemory).forEach(user => {
-                // Get the team the user is tracking
-                const userTeam = user.presets ? Object.values(user.presets)[0]?.trackingTeam : null;
+                // Get the team from the first preset found
+                const firstPresetKey = Object.keys(user.presets)[0];
+                const userTeam = firstPresetKey ? user.presets[firstPresetKey].trackingTeam : null;
 
                 if (userTeam && (userTeam === homeTeam || userTeam === awayTeam)) {
-                    // If the game just finished or a goal was scored
-                    // (Logic here to compare game.homeTeam.score to previous score)
                     if (game.gameState === "LIVE" || game.gameState === "OFF") {
-                         handleNHLScoreChange(game, userTeam);
+                         // Ensure handleNHLScoreChange exists or add logic here
+                         console.log(`🏒 NHL Game Live: ${awayTeam} vs ${homeTeam}`);
                     }
                 }
             });
@@ -210,8 +209,9 @@ async function checkNHL() {
 // --- 7. MLB LOGIC ---
 async function checkMLB() {
     try {
+        // FIXED: Only declare 'today' once
         const today = new Date().toLocaleDateString('en-CA', {timeZone: 'America/Toronto'});
-        const today = new Date().toISOString().split('T')[0];
+        
         const url = `https://statsapi.mlb.com/api/v1/schedule/games/?sportId=1&date=${today}`;
         const response = await fetch(url);
         const data = await response.json();
@@ -220,19 +220,18 @@ async function checkMLB() {
 
         const allGames = data.dates[0].games;
 
-        // Loop through EVERY game currently playing in the MLB
         for (const game of allGames) {
-            const homeTeam = game.teams.home.team.name; // e.g. "Toronto Blue Jays"
-            const awayTeam = game.teams.away.team.name; // e.g. "New York Yankees"
+            const homeTeam = game.teams.home.team.name; 
+            const awayTeam = game.teams.away.team.name; 
 
-            // Check if ANY of our users are tracking either of these teams
             Object.values(userMemory).forEach(user => {
-                const userTeam = user.presets ? Object.values(user.presets)[0]?.trackingTeam : null;
+                const firstPresetKey = Object.keys(user.presets)[0];
+                const userTeam = firstPresetKey ? user.presets[firstPresetKey].trackingTeam : null;
 
-                // If a user is tracking one of these teams AND the game is live
                 if (userTeam && (homeTeam.includes(userTeam) || awayTeam.includes(userTeam))) {
                     if (game.status.abstractGameState === "Live") {
-                        processMLBLiveFeed(game.gamePk, userTeam); 
+                        // Ensure processMLBLiveFeed exists or add logic here
+                        console.log(`⚾ MLB Game Live: ${awayTeam} vs ${homeTeam}`);
                     }
                 }
             });
