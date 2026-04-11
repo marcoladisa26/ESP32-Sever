@@ -176,71 +176,68 @@ app.get('/test-trigger', (req, res) => {
 // --- 6. NHL LOGIC ---
 async function checkNHL() {
     try {
-        const response = await fetch("https://api-web.nhle.com/v1/score/now");
+        const today = new Date().toLocaleDateString('en-CA', {timeZone: 'America/Toronto'});
+        const url = `https://api-web.nhle.com/v1/schedule/now`; // Gets current week
+        const response = await fetch(url);
         const data = await response.json();
-        if (!data || !data.games) return;
 
-        // Get today's date in YYYY-MM-DD format to filter out old games
+        // Get today's games from the schedule
         const today = new Date().toISOString().split('T')[0];
+        const todayData = data.gameWeek.find(day => day.date === today);
 
-        data.games.forEach(game => {
-            // ONLY process games from today to prevent "Ghost" logs from 4pm games
-            if (game.gameDate !== today) return;
+        if (!todayData) return;
 
-            // FIX: Try Common Name -> Abbreviation -> "Unknown"
-            const homeTeam = game.homeTeam.commonName?.default || game.homeTeam.abbreviation || "Unknown";
-            const awayTeam = game.awayTeam.commonName?.default || game.awayTeam.abbreviation || "Unknown";
-            
-            const gameKey = `nhl_${game.id}`;
-            const homeScore = game.homeTeam.score ?? 0;
-            const awayScore = game.awayTeam.score ?? 0;
-            const scoreSum = homeScore + awayScore;
+        todayData.games.forEach(game => {
+            const homeTeam = game.homeTeam.abbrev; // e.g. "MTL"
+            const awayTeam = game.awayTeam.abbrev; // e.g. "TOR"
 
-            if (!lastProcessedEvents[gameKey]) {
-                lastProcessedEvents[gameKey] = { score: scoreSum, home: homeScore, state: game.gameState };
-                return;
-            }
-            const prev = lastProcessedEvents[gameKey];
+            Object.values(userMemory).forEach(user => {
+                // Get the team the user is tracking
+                const userTeam = user.presets ? Object.values(user.presets)[0]?.trackingTeam : null;
 
-            // 1. GOAL Detection (Only if the game is LIVE)
-            if (game.gameState === "LIVE" && scoreSum > prev.score) {
-                const scoringTeam = (homeScore > prev.home) ? homeTeam : awayTeam;
-                triggerLights(scoringTeam, "GOAL");
-            }
-
-            // 2. WIN Detection (Only trigger when moving to FINAL states)
-            if ((game.gameState === "OFF" || game.gameState === "FINAL") && prev.state === "LIVE") {
-                const winner = (homeScore > awayScore) ? homeTeam : awayTeam;
-                triggerLights(winner, "WIN");
-                console.log(`🏆 GAME FINAL: ${homeTeam} ${homeScore} - ${awayTeam} ${awayScore}`);
-            }
-
-            lastProcessedEvents[gameKey] = { score: scoreSum, home: homeScore, state: game.gameState };
+                if (userTeam && (userTeam === homeTeam || userTeam === awayTeam)) {
+                    // If the game just finished or a goal was scored
+                    // (Logic here to compare game.homeTeam.score to previous score)
+                    if (game.gameState === "LIVE" || game.gameState === "OFF") {
+                         handleNHLScoreChange(game, userTeam);
+                    }
+                }
+            });
         });
-    } catch (e) { console.error("❌ NHL Error:", e.message); }
+    } catch (e) { console.log("NHL Error:", e); }
 }
 
 // --- 7. MLB LOGIC ---
 async function checkMLB() {
     try {
-        const res = await fetch("https://statsapi.mlb.com/api/v1/schedule?sportId=1");
-        const data = await res.json();
-        const games = data.dates?.[0]?.games || [];
+        const today = new Date().toLocaleDateString('en-CA', {timeZone: 'America/Toronto'});
+        const today = new Date().toISOString().split('T')[0];
+        const url = `https://statsapi.mlb.com/api/v1/schedule/games/?sportId=1&date=${today}`;
+        const response = await fetch(url);
+        const data = await response.json();
 
-        for (let game of games) {
-            const status = game.status.abstractGameState;
-            if (status === "Live") {
-                const live = await (await fetch(`https://statsapi.mlb.com/api/v1.1/game/${game.gamePk}/feed/live`)).json();
-                const lastPlay = live.liveData.plays.allPlays.slice(-1)[0];
-                if (lastPlay && lastPlay.about.playId !== lastProcessedEvents[game.gamePk]) {
-                    const event = lastPlay.result.event;
-                    const team = lastPlay.team.name.split(' ').pop();
-                    if (["Home Run", "Run"].includes(event)) triggerLights(team, event.toUpperCase());
-                    lastProcessedEvents[game.gamePk] = lastPlay.about.playId;
+        if (!data.dates || data.dates.length === 0) return;
+
+        const allGames = data.dates[0].games;
+
+        // Loop through EVERY game currently playing in the MLB
+        for (const game of allGames) {
+            const homeTeam = game.teams.home.team.name; // e.g. "Toronto Blue Jays"
+            const awayTeam = game.teams.away.team.name; // e.g. "New York Yankees"
+
+            // Check if ANY of our users are tracking either of these teams
+            Object.values(userMemory).forEach(user => {
+                const userTeam = user.presets ? Object.values(user.presets)[0]?.trackingTeam : null;
+
+                // If a user is tracking one of these teams AND the game is live
+                if (userTeam && (homeTeam.includes(userTeam) || awayTeam.includes(userTeam))) {
+                    if (game.status.abstractGameState === "Live") {
+                        processMLBLiveFeed(game.gamePk, userTeam); 
+                    }
                 }
-            }
+            });
         }
-    } catch (e) { console.error("❌ MLB Error:", e.message); }
+    } catch (e) { console.log("MLB Error:", e); }
 }
 
 // --- 8. LOOPS & START ---
